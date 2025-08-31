@@ -67,12 +67,17 @@ def build_itinerary(client: AmapClient, city: str, days: int, interests: Optiona
     seen = set()
     poi_list: List[Dict[str, Any]] = []
     
-    # 改进POI搜索逻辑
+    # 优化POI搜索逻辑 - 减少搜索页数，优先获取高质量结果
+    max_pois_needed = days * len(SLOTS) * 2  # 需要的最多POI数量
+    
     for kw in keywords_pool:
+        if len(poi_list) >= max_pois_needed:
+            break
+            
         logger.info(f"搜索关键词: {kw}")
-        for page in range(1, 4):  # 增加搜索页数
+        for page in range(1, 3):  # 减少到最多2页
             try:
-                pois = client.search_poi(city, keywords=kw, page=page, offset=10)
+                pois = client.search_poi(city, keywords=kw, page=page, offset=8)  # 减少每页数量
                 logger.info(f"关键词'{kw}'第{page}页找到{len(pois)}个POI")
                 
                 for p in pois:
@@ -82,30 +87,29 @@ def build_itinerary(client: AmapClient, city: str, days: int, interests: Optiona
                     seen.add(key)
                     poi_list.append(p)
                     
-                    # 如果已经收集足够的POI，提前退出
-                    if len(poi_list) >= days * len(SLOTS) * 2:  # 多收集一些作为备选
+                    if len(poi_list) >= max_pois_needed:
                         break
                 
-                if len(poi_list) >= days * len(SLOTS) * 2:
+                if len(poi_list) >= max_pois_needed:
                     break
                     
             except Exception as e:
                 logger.error(f"搜索关键词'{kw}'第{page}页时出错: {e}")
                 continue
         
-        if len(poi_list) >= days * len(SLOTS) * 2:
+        if len(poi_list) >= max_pois_needed:
             break
     
     logger.info(f"总共收集到{len(poi_list)}个POI")
     
-    # 如果POI数量不足，尝试使用更通用的关键词
+    # 如果POI数量不足，使用更通用的关键词快速补充
     if len(poi_list) < days * len(SLOTS):
         logger.info("POI数量不足，使用更通用的关键词搜索")
-        fallback_keywords = ["景点", "旅游", "地标", "公园", "广场"]
+        fallback_keywords = ["景点", "旅游", "公园", "广场"]
         for kw in fallback_keywords:
-            if kw not in keywords_pool:
+            if kw not in keywords_pool and len(poi_list) < days * len(SLOTS):
                 try:
-                    pois = client.search_poi(city, keywords=kw, page=1, offset=20)
+                    pois = client.search_poi(city, keywords=kw, page=1, offset=10)
                     for p in pois:
                         key = (p["name"], tuple(p["location"]))
                         if key not in seen:
@@ -121,7 +125,7 @@ def build_itinerary(client: AmapClient, city: str, days: int, interests: Optiona
     
     logger.info(f"最终POI数量: {len(poi_list)}")
 
-    # 3) 按天填充 & 估算移动
+    # 3) 按天填充 & 估算移动（优化：减少路径规划调用）
     days_blocks: List[Dict[str, Any]] = []
     idx = 0
     prev = start_lnglat
@@ -132,7 +136,16 @@ def build_itinerary(client: AmapClient, city: str, days: int, interests: Optiona
             if idx < len(poi_list):
                 poi = poi_list[idx]
                 curr = (poi["location"][0], poi["location"][1])
-                move = client.route_time(prev, curr, mode="walk", city=city) if prev else None
+                
+                # 优化：只在有前一个坐标时才计算路径
+                move = None
+                if prev and prev != (0, 0):
+                    try:
+                        move = client.route_time(prev, curr, mode="walk", city=city)
+                    except Exception as e:
+                        logger.warning(f"路径规划失败: {e}")
+                        # 路径规划失败不影响整体流程
+                
                 items.append(Item(time_slot=s, poi=poi, move=move, notes=None))
                 prev = curr
                 idx += 1
