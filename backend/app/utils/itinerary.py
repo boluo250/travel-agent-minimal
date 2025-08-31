@@ -208,16 +208,27 @@ def to_km_travel(plan: Dict[str, Any]) -> Dict[str, Any]:
             poi = it.get("poi") or {}
             name = poi.get("name") or "POI"
             loc = poi.get("location") or []
-            lng, lat = (loc[0], loc[1]) if len(loc) == 2 else (None, None)
+            
+            # 验证坐标有效性
+            lng, lat = None, None
+            if len(loc) == 2 and isinstance(loc[0], (int, float)) and isinstance(loc[1], (int, float)):
+                if loc[0] != 0 and loc[1] != 0:  # 排除 (0,0) 无效坐标
+                    lng, lat = loc[0], loc[1]
 
             # stay_suggested_hours：简易估算（可按品类定制；这里只做演示：2小时）
             stay = 2.0
 
             navs = []
+            # 只有有效坐标才生成导航链接
             if lng is not None and lat is not None:
                 navs.append({"text": "在高德看点位", "href": _amap_marker_link(lng, lat, name)})
-                if prev_coord:
+                if prev_coord and prev_coord != (0, 0):  # 确保前一个坐标也有效
                     navs.append({"text": "从上个点步行导航", "href": _amap_direction_link(prev_coord, (lng, lat), name)})
+
+            # 如果是占位景点，不生成导航链接
+            if name == "待定景点":
+                navs = []  # 清空导航链接
+                name = "待定景点（需要手动添加）"
 
             spots.append({
                 "name": name,
@@ -226,7 +237,10 @@ def to_km_travel(plan: Dict[str, Any]) -> Dict[str, Any]:
                 "image": None,                           # 预留图片位：后续可打接高德/小红书图
                 "nav_links": navs,
             })
-            prev_coord = (lng, lat) if lng is not None else prev_coord
+            
+            # 只有有效坐标才更新前一个坐标
+            if lng is not None and lat is not None:
+                prev_coord = (lng, lat)
 
         out_days.append({
             "title": f"Day {di}: {city}（{date}）" if city else f"Day {di}（{date}）",
@@ -235,15 +249,26 @@ def to_km_travel(plan: Dict[str, Any]) -> Dict[str, Any]:
             "transport_note": "景点之间建议步行/打车，远距离可地铁/公交。",
         })
 
+    # 生成有效的CTA链接
     cta = []
     if out_days and out_days[0]["spots"]:
-        # 取第 1 天第 1 个点的第 1 个可用链接
-        first_spot = out_days[0]["spots"][0]
-        first_link = next((l for l in first_spot.get("nav_links", []) if l.get("href")), None)
-        if first_link:
+        # 找到第一个有效景点的第一个可用链接
+        first_day = out_days[0]["spots"]
+        for spot in first_day:
+            if spot.get("nav_links") and len(spot["nav_links"]) > 0:
+                first_link = spot["nav_links"][0]
+                if first_link.get("href") and "position=0,0" not in first_link["href"]:
+                    cta.append({
+                        "text": "在高德中查看首个景点",
+                        "href": first_link["href"]
+                    })
+                    break
+        
+        # 如果没有找到有效链接，提供通用提示
+        if not cta:
             cta.append({
-                "text": "在高德中查看首个点",
-                "href": first_link["href"]
+                "text": "添加景点到行程",
+                "href": "#"
             })
 
     resp = {

@@ -82,11 +82,41 @@ python test_api.py
 - API密钥未设置或无效
 - 城市名称不正确
 - 网络连接问题
+- 高德地图API调用失败
 
 **解决方法：**
-- 检查 `.env` 文件中的 `GAODE_API_KEY` 是否正确设置
-- 确保城市名称使用中文（如：北京、上海、广州）
-- 查看后端日志获取详细错误信息
+
+1. **检查API密钥配置**
+   ```bash
+   cd backend
+   # 确保.env文件存在并包含正确的API密钥
+   cat .env
+   # 应该看到: GAODE_API_KEY=your_actual_key_here
+   ```
+
+2. **测试高德地图API**
+   ```bash
+   cd backend
+   python test_amap.py
+   ```
+   这个脚本会测试地理编码、POI搜索和路径规划功能
+
+3. **检查API状态**
+   - 访问 [高德开放平台控制台](https://console.amap.com/)
+   - 检查API使用量和配额
+   - 确认应用状态为"正常"
+
+4. **查看后端日志**
+   ```bash
+   # 启动后端服务时查看详细日志
+   uvicorn app.main:app --reload --port 8000 --log-level debug
+   ```
+
+5. **使用调试端点**
+   ```
+   GET /api/debug/amap?city=北京&keywords=博物馆
+   ```
+   这个端点会返回详细的API调用状态
 
 ### API调用失败
 
@@ -99,6 +129,40 @@ python test_api.py
 - 检查API使用量是否超限
 - 查看后端日志获取详细错误信息
 - 稍后重试
+
+### 调试步骤
+
+如果景点推荐仍然为空，请按以下步骤排查：
+
+1. **运行基础测试**
+   ```bash
+   cd backend
+   python test_amap.py
+   ```
+
+2. **检查环境变量**
+   ```bash
+   # 确保.env文件在backend目录下
+   ls -la backend/.env
+   
+   # 检查API密钥是否正确设置
+   grep GAODE_API_KEY backend/.env
+   ```
+
+3. **测试单个API功能**
+   ```bash
+   # 启动后端服务
+   uvicorn app.main:app --reload --port 8000
+   
+   # 在另一个终端测试调试端点
+   curl "http://localhost:8000/api/debug/amap?city=北京&keywords=博物馆"
+   ```
+
+4. **查看详细日志**
+   后端会输出详细的API调用日志，包括：
+   - 地理编码请求和响应
+   - POI搜索过程和结果
+   - 错误详情和状态码
 
 ## 📁 项目结构
 
